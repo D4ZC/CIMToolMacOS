@@ -15,8 +15,8 @@
     <!-- Eclipse WTP / WST — para org.eclipse.wst.* que usa CIMTool -->
     <location includeAllPlatforms="false" includeConfigurePhase="true" includeMode="planner" includeSource="true" type="InstallableUnit">
       <unit id="org.eclipse.wst.xml_ui.feature.feature.group" version="0.0.0"/>
-      <unit id="org.eclipse.wst.sse.ui.feature.feature.group" version="0.0.0"/>
       <unit id="org.eclipse.wst.common_ui.feature.feature.group" version="0.0.0"/>
+      <unit id="org.eclipse.wst.web_ui.feature.feature.group" version="0.0.0"/>
       <repository location="https://download.eclipse.org/webtools/repository/2023-06/"/>
     </location>
 
