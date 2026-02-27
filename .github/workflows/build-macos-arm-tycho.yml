@@ -38,50 +38,50 @@ jobs:
           key: tycho-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pom.xml', 'CIMToolProduct/CIMTool.target') }}
           restore-keys: tycho-${{ runner.os }}-${{ runner.arch }}-
 
-      - name: Generar pom.xml de modulos con artifactId correcto
+      # Tycho exige que:
+      #   artifactId  == Bundle-SymbolicName  (del MANIFEST.MF)
+      #   <version>   == Bundle-Version       (del MANIFEST.MF)
+      # Este paso genera pom.xml correctos leyendo ambos valores del MANIFEST.
+      - name: Generar pom.xml de modulos con artifactId y version correctos
         run: |
           python3 << 'PYEOF'
           import os, re, textwrap
 
-          PARENT_GROUP    = "au.com.langdale.cimtool"
-          PARENT_ARTIFACT = "cimtool-parent"
-          PARENT_VERSION  = "2.2.0"
+          POM_PLUGIN = textwrap.dedent("""\
+              <?xml version="1.0" encoding="UTF-8"?>
+              <project xmlns="http://maven.apache.org/POM/4.0.0"
+                       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                       xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+                <modelVersion>4.0.0</modelVersion>
+                <parent>
+                  <groupId>au.com.langdale.cimtool</groupId>
+                  <artifactId>cimtool-parent</artifactId>
+                  <version>2.2.0</version>
+                  <relativePath>../pom.xml</relativePath>
+                </parent>
+                <artifactId>BSN_PLACEHOLDER</artifactId>
+                <version>VER_PLACEHOLDER</version>
+                <packaging>eclipse-plugin</packaging>
+              </project>
+              """)
 
-          def plugin_pom(aid):
-              return textwrap.dedent("""\
-                  <?xml version="1.0" encoding="UTF-8"?>
-                  <project xmlns="http://maven.apache.org/POM/4.0.0"
-                           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-                           xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
-                    <modelVersion>4.0.0</modelVersion>
-                    <parent>
-                      <groupId>au.com.langdale.cimtool</groupId>
-                      <artifactId>cimtool-parent</artifactId>
-                      <version>2.2.0</version>
-                      <relativePath>../pom.xml</relativePath>
-                    </parent>
-                    <artifactId>""" + aid + """</artifactId>
-                    <packaging>eclipse-plugin</packaging>
-                  </project>
-                  """)
-
-          def feature_pom(aid):
-              return textwrap.dedent("""\
-                  <?xml version="1.0" encoding="UTF-8"?>
-                  <project xmlns="http://maven.apache.org/POM/4.0.0"
-                           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-                           xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
-                    <modelVersion>4.0.0</modelVersion>
-                    <parent>
-                      <groupId>au.com.langdale.cimtool</groupId>
-                      <artifactId>cimtool-parent</artifactId>
-                      <version>2.2.0</version>
-                      <relativePath>../pom.xml</relativePath>
-                    </parent>
-                    <artifactId>""" + aid + """</artifactId>
-                    <packaging>eclipse-feature</packaging>
-                  </project>
-                  """)
+          POM_FEATURE = textwrap.dedent("""\
+              <?xml version="1.0" encoding="UTF-8"?>
+              <project xmlns="http://maven.apache.org/POM/4.0.0"
+                       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                       xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+                <modelVersion>4.0.0</modelVersion>
+                <parent>
+                  <groupId>au.com.langdale.cimtool</groupId>
+                  <artifactId>cimtool-parent</artifactId>
+                  <version>2.2.0</version>
+                  <relativePath>../pom.xml</relativePath>
+                </parent>
+                <artifactId>BSN_PLACEHOLDER</artifactId>
+                <version>VER_PLACEHOLDER</version>
+                <packaging>eclipse-feature</packaging>
+              </project>
+              """)
 
           IGNORE = {'.git', '.github', 'docs', 'target'}
           included = []
@@ -89,30 +89,50 @@ jobs:
           for d in sorted(os.listdir('.')):
               if not os.path.isdir(d) or d in IGNORE or d.startswith('.'):
                   continue
+
               manifest = os.path.join(d, 'META-INF', 'MANIFEST.MF')
               feature  = os.path.join(d, 'feature.xml')
               pom      = os.path.join(d, 'pom.xml')
+
               if os.path.exists(manifest):
                   txt = open(manifest, encoding='utf-8', errors='replace').read()
-                  m = re.search(r'^Bundle-SymbolicName:\s*([^\s;]+)', txt, re.MULTILINE)
-                  if m:
-                      bsn = m.group(1).strip()
-                      open(pom, 'w').write(plugin_pom(bsn))
+                  m_bsn = re.search(r'^Bundle-SymbolicName:\s*([^\s;]+)', txt, re.MULTILINE)
+                  m_ver = re.search(r'^Bundle-Version:\s*([^\s]+)',        txt, re.MULTILINE)
+                  if m_bsn:
+                      bsn = m_bsn.group(1).strip()
+                      ver = m_ver.group(1).strip() if m_ver else "0.0.0"
+                      content = POM_PLUGIN.replace('BSN_PLACEHOLDER', bsn).replace('VER_PLACEHOLDER', ver)
+                      open(pom, 'w').write(content)
                       included.append(d)
-                      print(f"  [plugin]  {d:30s} -> {bsn}")
+                      print(f"  [plugin]  {d:30s}  BSN={bsn}  v={ver}")
                   else:
-                      print(f"  [skip]    {d:30s} (MANIFEST sin BSN)")
+                      print(f"  [skip]    {d:30s}  (MANIFEST sin Bundle-SymbolicName)")
+
               elif os.path.exists(feature):
                   txt = open(feature, encoding='utf-8', errors='replace').read()
-                  m = re.search(r'<feature[^>]+\bid=["\']([^"\']+)["\']', txt)
-                  fid = m.group(1) if m else d
-                  open(pom, 'w').write(feature_pom(fid))
+                  m_id  = re.search(r'<feature[^>]+\bid=["\']([^"\']+)["\']',      txt)
+                  m_ver = re.search(r'<feature[^>]+\bversion=["\']([^"\']+)["\']', txt)
+                  fid = m_id.group(1)  if m_id  else d
+                  ver = m_ver.group(1) if m_ver else "0.0.0"
+                  content = POM_FEATURE.replace('BSN_PLACEHOLDER', fid).replace('VER_PLACEHOLDER', ver)
+                  open(pom, 'w').write(content)
                   included.append(d)
-                  print(f"  [feature] {d:30s} -> {fid}")
+                  print(f"  [feature] {d:30s}  id={fid}  v={ver}")
+
               elif os.path.exists(pom):
-                  print(f"  [keep]    {d:30s} (pom existente)")
-          print(f"Modulos procesados: {included}")
+                  print(f"  [keep]    {d:30s}  (pom existente, sin MANIFEST/feature)")
+
+          print(f"\nModulos procesados: {included}")
           PYEOF
+
+      - name: Mostrar versiones detectadas por modulo
+        run: |
+          echo "=== artifactId y version por modulo ==="
+          for f in */pom.xml; do
+            AID=$(grep -m2 '<artifactId>' "$f" | tail -1 | tr -d ' <>/artifactId')
+            VER=$(grep -m2 '<version>'    "$f" | tail -1 | tr -d ' <>/version')
+            echo "  $f  ->  $AID  v$VER"
+          done
 
       - name: Build con Maven Tycho
         run: |
