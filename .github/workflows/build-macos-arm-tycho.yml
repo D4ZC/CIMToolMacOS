@@ -10,21 +10,15 @@ on:
 
 jobs:
   build-macos-arm:
-    # macos-14 = Apple Silicon M1/M2 nativo
     runs-on: macos-14
 
     steps:
-      # ── 1. VERIFICAR ARQUITECTURA ──────────────────────────────────────────
       - name: Verificar ARM nativo
-        run: |
-          uname -m    # debe ser arm64
-          uname -a
+        run: uname -m && uname -a
 
-      # ── 2. CLONAR REPOSITORIO ──────────────────────────────────────────────
       - name: Checkout CIMTool
         uses: actions/checkout@v4
 
-      # ── 3. INSTALAR JDK 21 ARM NATIVO ─────────────────────────────────────
       - name: Instalar Temurin 21 aarch64
         uses: actions/setup-java@v4
         with:
@@ -32,20 +26,9 @@ jobs:
           java-version: '21'
           architecture: aarch64
 
-      - name: Verificar JDK
-        run: |
-          java -version
-          file $JAVA_HOME/bin/java   # debe decir arm64
-
-      # ── 4. INSTALAR MAVEN ─────────────────────────────────────────────────
       - name: Instalar Maven
-        run: |
-          brew install maven
-          mvn -version
+        run: brew install maven && mvn -version
 
-      # ── 5. CACHE DE DEPENDENCIAS MAVEN/TYCHO ──────────────────────────────
-      # Tycho descarga los plugins de Eclipse desde p2 repos (~500MB la primera vez)
-      # El cache reduce el tiempo de ~20min a ~5min en ejecuciones posteriores
       - name: Cache Maven y Tycho p2
         uses: actions/cache@v4
         with:
@@ -53,40 +36,124 @@ jobs:
             ~/.m2/repository
             ~/.cache/tycho
           key: tycho-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/pom.xml') }}
-          restore-keys: |
-            tycho-${{ runner.os }}-${{ runner.arch }}-
+          restore-keys: tycho-${{ runner.os }}-${{ runner.arch }}-
 
-      # ── 6. BUILD CON TYCHO ────────────────────────────────────────────────
-      # Tycho lee los MANIFEST.MF y feature.xml del proyecto,
-      # resuelve dependencias desde los repos p2 de Eclipse,
-      # compila y empaqueta el producto para macOS aarch64.
+      # ── DIAGNOSTICO: ver estructura real de todos los modulos ──────────────
+      - name: Diagnosticar modulos del proyecto
+        run: |
+          echo "=== Estructura de modulos ==="
+          for dir in */; do
+            dir="${dir%/}"
+            [ ! -d "$dir" ] && continue
+            if [ -f "$dir/META-INF/MANIFEST.MF" ]; then
+              BSN=$(grep "Bundle-SymbolicName:" "$dir/META-INF/MANIFEST.MF" 2>/dev/null | head -1 | cut -d: -f2 | xargs)
+              echo "  [plugin]    $dir  ->  $BSN"
+            elif [ -f "$dir/feature.xml" ]; then
+              echo "  [feature]   $dir"
+            elif ls "$dir"/*.product 2>/dev/null | head -1 > /dev/null 2>&1; then
+              echo "  [product]   $dir"
+            elif [ -f "$dir/pom.xml" ]; then
+              echo "  [pom only]  $dir  (sin MANIFEST ni feature.xml — NO es OSGi)"
+            else
+              echo "  [skip]      $dir"
+            fi
+          done
+
+      # ── AUTO-DETECTAR MODULOS OSGi VALIDOS Y ACTUALIZAR pom.xml ───────────
+      # Tycho falla si un modulo tiene packaging=eclipse-plugin
+      # pero no tiene META-INF/MANIFEST.MF con Bundle-SymbolicName.
+      # Este paso reescribe la seccion <modules> del pom.xml raiz
+      # incluyendo SOLO los directorios que son bundles OSGi reales.
+      - name: Auto-detectar modulos OSGi y actualizar pom.xml raiz
+        run: |
+          python3 << 'PYEOF'
+          import os, re
+
+          modules = []
+          skipped = []
+
+          for d in sorted(os.listdir('.')):
+              if not os.path.isdir(d):
+                  continue
+              pom = os.path.join(d, 'pom.xml')
+              if not os.path.exists(pom):
+                  continue
+
+              manifest = os.path.join(d, 'META-INF', 'MANIFEST.MF')
+              feature  = os.path.join(d, 'feature.xml')
+              products = [f for f in os.listdir(d) if f.endswith('.product')]
+
+              if os.path.exists(manifest):
+                  content = open(manifest).read()
+                  if 'Bundle-SymbolicName' in content:
+                      modules.append(d)
+                      print(f'  INCLUIDO [plugin]:  {d}')
+                  else:
+                      skipped.append(d)
+                      print(f'  OMITIDO  [manifest sin BSN]: {d}')
+              elif os.path.exists(feature):
+                  modules.append(d)
+                  print(f'  INCLUIDO [feature]: {d}')
+              elif products:
+                  modules.append(d)
+                  print(f'  INCLUIDO [product]: {d}')
+              else:
+                  skipped.append(d)
+                  print(f'  OMITIDO  [sin tipo OSGi]: {d}')
+
+          # Reescribir seccion <modules> en pom.xml raiz
+          modules_xml = '\n'.join(f'    <module>{m}</module>' for m in modules)
+          new_block = f'  <modules>\n{modules_xml}\n  </modules>'
+
+          pom_content = open('pom.xml').read()
+          pom_content = re.sub(
+              r'<modules>.*?</modules>',
+              new_block,
+              pom_content,
+              flags=re.DOTALL
+          )
+          open('pom.xml', 'w').write(pom_content)
+
+          print(f'\nTotal modulos incluidos: {len(modules)}')
+          print(f'Total omitidos:          {len(skipped)}')
+          PYEOF
+
+      - name: Mostrar pom.xml raiz actualizado
+        run: grep -A 30 '<modules>' pom.xml
+
+      # ── BUILD ──────────────────────────────────────────────────────────────
       - name: Build con Maven Tycho
         run: |
           mvn clean package \
             --batch-mode \
             --no-transfer-progress \
             -Dmaven.test.skip=true \
-            -Dtycho.disableP2Mirrors=false \
+            -e \
             2>&1 | tee build.log
 
-      # ── 7. VERIFICAR OUTPUT ────────────────────────────────────────────────
-      - name: Verificar archivos generados
-        run: |
-          echo "=== Productos generados en CIMToolProduct/target/products/ ==="
-          find CIMToolProduct/target/products -type f | sort
-
-          MAC_ARTIFACT=$(find CIMToolProduct/target/products -name "*macosx*aarch64*" | head -1)
-          if [ -z "$MAC_ARTIFACT" ]; then
-            echo "ERROR: No se genero el artifact para macOS aarch64"
-            echo "Archivos disponibles:"
-            find CIMToolProduct/target -type f | head -30
+          if grep -q "BUILD FAILURE" build.log; then
+            echo ""
+            echo "=== BUILD FAILURE — ultimas 80 lineas ==="
+            tail -80 build.log
             exit 1
           fi
-          echo "Artifact macOS ARM: $MAC_ARTIFACT"
+          echo "=== BUILD SUCCESS ==="
+
+      # ── VERIFICAR OUTPUT ───────────────────────────────────────────────────
+      - name: Verificar artifacts generados
+        run: |
+          echo "=== Contenido de CIMToolProduct/target/ ==="
+          find CIMToolProduct/target -type f 2>/dev/null | sort || echo "No existe target/"
+
+          MAC_ARTIFACT=$(find CIMToolProduct/target/products -name "*macosx*aarch64*" 2>/dev/null | head -1)
+          if [ -z "$MAC_ARTIFACT" ]; then
+            echo "ERROR: No se genero el artifact macOS aarch64"
+            exit 1
+          fi
+          echo "Artifact: $MAC_ARTIFACT"
           ls -lh "$MAC_ARTIFACT"
           echo "MAC_ARTIFACT=$MAC_ARTIFACT" >> $GITHUB_ENV
 
-      # ── 8. SUBIR ARTIFACT ─────────────────────────────────────────────────
       - name: Subir artifact macOS ARM
         uses: actions/upload-artifact@v4
         with:
@@ -95,7 +162,6 @@ jobs:
           retention-days: 30
           if-no-files-found: error
 
-      # ── 9. LOG (siempre, incluso si falla) ────────────────────────────────
       - name: Subir log de build
         if: always()
         uses: actions/upload-artifact@v4

@@ -34,7 +34,8 @@
     <module>Kena</module>
     <module>RCPUtil</module>
     <module>com.cimphony.cimtoole</module>
-    <module>CIMCheck</module>
+    <!-- CIMCheck excluido: no tiene META-INF/MANIFEST.MF (no es un bundle OSGi) -->
+    <!-- <module>CIMCheck</module> -->
     <module>CIMToolPlugin</module>
     <module>CIMToolHelp</module>
     <module>CIMToolFeature</module>
