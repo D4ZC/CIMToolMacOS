@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+                             http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>au.com.langdale.cimtool</groupId>
+    <artifactId>cimtool-parent</artifactId>
+    <version>2.2.0-SNAPSHOT</version>
+    <relativePath>../pom.xml</relativePath>
+  </parent>
+
+  <artifactId>CIMToolProduct</artifactId>
+  <!-- eclipse-repository con tycho-p2-director genera el producto final -->
+  <packaging>eclipse-repository</packaging>
+
+  <build>
+    <plugins>
+
+      <!-- ── TYCHO P2 DIRECTOR: materializa el producto desde el .product ── -->
+      <plugin>
+        <groupId>org.eclipse.tycho</groupId>
+        <artifactId>tycho-p2-director-plugin</artifactId>
+        <version>${tycho.version}</version>
+        <executions>
+          <execution>
+            <id>materialize-products</id>
+            <goals>
+              <goal>materialize-products</goal>
+            </goals>
+          </execution>
+          <execution>
+            <id>archive-products</id>
+            <goals>
+              <goal>archive-products</goal>
+            </goals>
+            <configuration>
+              <formats>
+                <!-- macOS ARM: genera .tar.gz (mas comun en macOS que .zip) -->
+                <macosx>tar.gz</macosx>
+                <!-- Windows: genera .zip -->
+                <win32>zip</win32>
+                <!-- Linux: genera .tar.gz -->
+                <linux>tar.gz</linux>
+              </formats>
+            </configuration>
+          </execution>
+        </executions>
+        <configuration>
+          <products>
+            <product>
+              <!-- uid del producto definido en CIMTool.product -->
+              <id>au.com.langdale.cimtool.deployment</id>
+              <!-- nombre del archivo de salida sin extension -->
+              <rootFolder>CIMTool-2.2.0</rootFolder>
+              <rootFolders>
+                <!-- En macOS el .app tiene un nombre especifico -->
+                <macosx>CIMTool-2.2.0</macosx>
+              </rootFolders>
+            </product>
+          </products>
+        </configuration>
+      </plugin>
+
+    </plugins>
+  </build>
+
+</project>

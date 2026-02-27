@@ -1,0 +1,106 @@
+name: Build CIMTool macOS ARM (Tycho)
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version del producto (ej: 2.2.0)'
+        required: true
+        default: '2.2.0'
+
+jobs:
+  build-macos-arm:
+    # macos-14 = Apple Silicon M1/M2 nativo
+    runs-on: macos-14
+
+    steps:
+      # ── 1. VERIFICAR ARQUITECTURA ──────────────────────────────────────────
+      - name: Verificar ARM nativo
+        run: |
+          uname -m    # debe ser arm64
+          uname -a
+
+      # ── 2. CLONAR REPOSITORIO ──────────────────────────────────────────────
+      - name: Checkout CIMTool
+        uses: actions/checkout@v4
+
+      # ── 3. INSTALAR JDK 21 ARM NATIVO ─────────────────────────────────────
+      - name: Instalar Temurin 21 aarch64
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          architecture: aarch64
+
+      - name: Verificar JDK
+        run: |
+          java -version
+          file $JAVA_HOME/bin/java   # debe decir arm64
+
+      # ── 4. INSTALAR MAVEN ─────────────────────────────────────────────────
+      - name: Instalar Maven
+        run: |
+          brew install maven
+          mvn -version
+
+      # ── 5. CACHE DE DEPENDENCIAS MAVEN/TYCHO ──────────────────────────────
+      # Tycho descarga los plugins de Eclipse desde p2 repos (~500MB la primera vez)
+      # El cache reduce el tiempo de ~20min a ~5min en ejecuciones posteriores
+      - name: Cache Maven y Tycho p2
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.cache/tycho
+          key: tycho-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            tycho-${{ runner.os }}-${{ runner.arch }}-
+
+      # ── 6. BUILD CON TYCHO ────────────────────────────────────────────────
+      # Tycho lee los MANIFEST.MF y feature.xml del proyecto,
+      # resuelve dependencias desde los repos p2 de Eclipse,
+      # compila y empaqueta el producto para macOS aarch64.
+      - name: Build con Maven Tycho
+        run: |
+          mvn clean package \
+            --batch-mode \
+            --no-transfer-progress \
+            -Dmaven.test.skip=true \
+            -Dtycho.disableP2Mirrors=false \
+            2>&1 | tee build.log
+
+      # ── 7. VERIFICAR OUTPUT ────────────────────────────────────────────────
+      - name: Verificar archivos generados
+        run: |
+          echo "=== Productos generados en CIMToolProduct/target/products/ ==="
+          find CIMToolProduct/target/products -type f | sort
+
+          MAC_ARTIFACT=$(find CIMToolProduct/target/products -name "*macosx*aarch64*" | head -1)
+          if [ -z "$MAC_ARTIFACT" ]; then
+            echo "ERROR: No se genero el artifact para macOS aarch64"
+            echo "Archivos disponibles:"
+            find CIMToolProduct/target -type f | head -30
+            exit 1
+          fi
+          echo "Artifact macOS ARM: $MAC_ARTIFACT"
+          ls -lh "$MAC_ARTIFACT"
+          echo "MAC_ARTIFACT=$MAC_ARTIFACT" >> $GITHUB_ENV
+
+      # ── 8. SUBIR ARTIFACT ─────────────────────────────────────────────────
+      - name: Subir artifact macOS ARM
+        uses: actions/upload-artifact@v4
+        with:
+          name: CIMTool-${{ github.event.inputs.version }}-macosx-cocoa-aarch64
+          path: ${{ env.MAC_ARTIFACT }}
+          retention-days: 30
+          if-no-files-found: error
+
+      # ── 9. LOG (siempre, incluso si falla) ────────────────────────────────
+      - name: Subir log de build
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build.log
+          retention-days: 7
+          if-no-files-found: ignore

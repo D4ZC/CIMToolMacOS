@@ -1,0 +1,139 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+                             http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>au.com.langdale.cimtool</groupId>
+  <artifactId>cimtool-parent</artifactId>
+  <version>2.2.0-SNAPSHOT</version>
+  <packaging>pom</packaging>
+  <name>CIMTool Parent</name>
+
+  <properties>
+    <tycho.version>4.0.6</tycho.version>
+    <maven.compiler.source>21</maven.compiler.source>
+    <maven.compiler.target>21</maven.compiler.target>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+
+    <!-- Repositorio p2 de Eclipse 2023-06 (misma version que la doc oficial) -->
+    <eclipse.repo>https://download.eclipse.org/releases/2023-06/</eclipse.repo>
+    <!-- Repositorio WST/WTP para los plugins org.eclipse.wst.* -->
+    <wtp.repo>https://download.eclipse.org/webtools/repository/2023-06/</wtp.repo>
+    <!-- Repositorio EMF -->
+    <emf.repo>https://download.eclipse.org/modeling/emf/emf/builds/release/latest/</emf.repo>
+    <!-- Orbit (librerias de terceros empaquetadas como bundles OSGi) -->
+    <orbit.repo>https://download.eclipse.org/tools/orbit/simrel/orbit-aggregation/release/latest/</orbit.repo>
+  </properties>
+
+  <!-- ── MODULOS ────────────────────────────────────────────────────────── -->
+  <!-- El orden importa: las dependencias deben ir antes que los que las usan -->
+  <modules>
+    <module>CIMUtil</module>
+    <module>Kena</module>
+    <module>RCPUtil</module>
+    <module>com.cimphony.cimtoole</module>
+    <module>CIMCheck</module>
+    <module>CIMToolPlugin</module>
+    <module>CIMToolHelp</module>
+    <module>CIMToolFeature</module>
+    <module>CIMToolUpdate</module>
+    <module>CIMToolProduct</module>
+  </modules>
+
+  <build>
+    <plugins>
+
+      <!-- ── TYCHO CORE: convierte Maven en un build system para OSGi/Eclipse ── -->
+      <plugin>
+        <groupId>org.eclipse.tycho</groupId>
+        <artifactId>tycho-maven-plugin</artifactId>
+        <version>${tycho.version}</version>
+        <extensions>true</extensions>
+      </plugin>
+
+      <!-- ── TARGET PLATFORM: define para qué OS/arco compilar ── -->
+      <plugin>
+        <groupId>org.eclipse.tycho</groupId>
+        <artifactId>target-platform-configuration</artifactId>
+        <version>${tycho.version}</version>
+        <configuration>
+          <executionEnvironment>JavaSE-21</executionEnvironment>
+          <environments>
+            <!-- macOS Apple Silicon — el objetivo principal -->
+            <environment>
+              <os>macosx</os>
+              <ws>cocoa</ws>
+              <arch>aarch64</arch>
+            </environment>
+            <!-- Mantener Windows para no romper los releases actuales -->
+            <environment>
+              <os>win32</os>
+              <ws>win32</ws>
+              <arch>x86_64</arch>
+            </environment>
+            <!-- Linux opcional -->
+            <environment>
+              <os>linux</os>
+              <ws>gtk</ws>
+              <arch>x86_64</arch>
+            </environment>
+          </environments>
+          <!-- Repositorios p2 que Tycho usa como target platform -->
+          <repositories>
+            <repository>
+              <id>eclipse-2023-06</id>
+              <url>${eclipse.repo}</url>
+              <layout>p2</layout>
+            </repository>
+            <repository>
+              <id>eclipse-wtp</id>
+              <url>${wtp.repo}</url>
+              <layout>p2</layout>
+            </repository>
+            <repository>
+              <id>eclipse-emf</id>
+              <url>${emf.repo}</url>
+              <layout>p2</layout>
+            </repository>
+            <repository>
+              <id>eclipse-orbit</id>
+              <url>${orbit.repo}</url>
+              <layout>p2</layout>
+            </repository>
+          </repositories>
+        </configuration>
+      </plugin>
+
+      <!-- ── COMPILADOR: forzar Java 21 en todos los modulos ── -->
+      <plugin>
+        <groupId>org.eclipse.tycho</groupId>
+        <artifactId>tycho-compiler-plugin</artifactId>
+        <version>${tycho.version}</version>
+        <configuration>
+          <source>21</source>
+          <target>21</target>
+          <encoding>UTF-8</encoding>
+        </configuration>
+      </plugin>
+
+      <!-- ── SOURCE JARS: opcional pero util para debugging ── -->
+      <plugin>
+        <groupId>org.eclipse.tycho</groupId>
+        <artifactId>tycho-source-plugin</artifactId>
+        <version>${tycho.version}</version>
+        <executions>
+          <execution>
+            <id>plugin-source</id>
+            <goals>
+              <goal>plugin-source</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+
+    </plugins>
+  </build>
+
+</project>
