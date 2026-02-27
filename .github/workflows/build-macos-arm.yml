@@ -153,7 +153,6 @@ jobs:
           fi
 
           echo "TARGET_PLATFORM=$TARGET" >> $GITHUB_ENV
-          echo "ECLIPSE_HOME=$ECLIPSE_HOME" >> $GITHUB_ENV
 
       # ── 8. PREPARAR DIRECTORIO DE BUILD ───────────────────────────────────
       - name: Preparar directorio de output
@@ -164,14 +163,34 @@ jobs:
           echo "=== CIMToolProduct ==="
           ls -la $GITHUB_WORKSPACE/CIMToolProduct/ || echo "No se encontro CIMToolProduct/"
 
+          echo "=== Estructura real del Eclipse.app ==="
+          find $HOME/eclipse-rcp/Eclipse.app/Contents -maxdepth 2 | sort
+
       # ── 9. PDE HEADLESS EXPORT ─────────────────────────────────────────────
       - name: Ejecutar PDE Headless Export para macOS ARM
         run: |
-          ECLIPSE_EXEC="$ECLIPSE_HOME/eclipse"
-          PDE_BUILD_SCRIPTS=$(ls -d $TARGET_PLATFORM/plugins/org.eclipse.pde.build_* 2>/dev/null | head -1)
+          # En macOS el ejecutable eclipse esta en Contents/MacOS/, NO en Contents/Eclipse/
+          # Contents/Eclipse/ contiene los plugins/features/configuration
+          # Contents/MacOS/eclipse es el binario lanzador
+          ECLIPSE_APP="$HOME/eclipse-rcp/Eclipse.app"
+          ECLIPSE_EXEC="$ECLIPSE_APP/Contents/MacOS/eclipse"
+          ECLIPSE_HOME="$ECLIPSE_APP/Contents/Eclipse"
 
+          echo "=== Verificando ejecutable ==="
+          ls -la "$ECLIPSE_APP/Contents/MacOS/" || echo "No existe Contents/MacOS/"
+          ls -la "$ECLIPSE_APP/Contents/Eclipse/" | head -10 || echo "No existe Contents/Eclipse/"
+          file "$ECLIPSE_EXEC" || echo "No se encontro el ejecutable"
+
+          PDE_BUILD_SCRIPTS=$(ls -d $TARGET_PLATFORM/plugins/org.eclipse.pde.build_* 2>/dev/null | head -1)
           echo "PDE Build scripts: $PDE_BUILD_SCRIPTS"
           echo "Eclipse executable: $ECLIPSE_EXEC"
+
+          if [ ! -f "$ECLIPSE_EXEC" ]; then
+            echo "ERROR: No se encontro el ejecutable eclipse"
+            echo "Contenido completo de Contents/:"
+            find "$ECLIPSE_APP/Contents" -maxdepth 3 | sort
+            exit 1
+          fi
 
           "$ECLIPSE_EXEC" \
             -nosplash \
