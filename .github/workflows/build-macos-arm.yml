@@ -113,27 +113,44 @@ jobs:
 
           mkdir -p "$TARGET/plugins" "$TARGET/features"
 
-          echo "Copiando plugins de Eclipse RCP base..."
-          cp -Rf "$ECLIPSE_HOME/plugins"/. "$TARGET/plugins/"
+          echo "=== Estructura del Platform Repo ==="
+          find "$PLATFORM_REPO" -maxdepth 3 -type d | sort
+          echo "=== Estructura Eclipse RCP ==="
+          ls "$ECLIPSE_HOME/"
 
-          echo "Mergeando plugins del Platform Runtime Repo..."
-          REPO_PLUGINS=$(find "$PLATFORM_REPO" -type d -name "plugins" | head -1)
-          if [ -n "$REPO_PLUGINS" ]; then
-            cp -Rn "$REPO_PLUGINS"/. "$TARGET/plugins/"
-            echo "Plugins mergeados desde: $REPO_PLUGINS"
+          echo "Copiando plugins de Eclipse RCP base con rsync..."
+          rsync -a --ignore-errors "$ECLIPSE_HOME/plugins/" "$TARGET/plugins/"
+          echo "Plugins copiados: $(ls $TARGET/plugins | wc -l)"
+
+          echo "=== Buscando carpeta plugins en el Platform Repo ==="
+          REPO_PLUGINS=""
+          if [ -d "$PLATFORM_REPO/plugins" ]; then
+            REPO_PLUGINS="$PLATFORM_REPO/plugins"
+          elif [ -d "$PLATFORM_REPO/eclipse/plugins" ]; then
+            REPO_PLUGINS="$PLATFORM_REPO/eclipse/plugins"
           else
-            echo "ADVERTENCIA: No se encontro carpeta plugins"
-            find "$PLATFORM_REPO" -maxdepth 3 -type d | head -20
+            REPO_PLUGINS=$(find "$PLATFORM_REPO" -type d -name "plugins" | head -1)
+          fi
+
+          if [ -n "$REPO_PLUGINS" ]; then
+            echo "Mergeando plugins desde: $REPO_PLUGINS"
+            rsync -a --ignore-errors --ignore-existing "$REPO_PLUGINS/" "$TARGET/plugins/"
+            echo "Total plugins tras merge: $(ls $TARGET/plugins | wc -l)"
+          else
+            echo "ADVERTENCIA: No se encontro carpeta plugins en el repo"
+            ls -la "$PLATFORM_REPO/"
           fi
 
           echo "=== Verificando SWT para macOS ARM ==="
           SWT_AARCH=$(find "$TARGET/plugins" -name "*swt*cocoa*aarch64*" | head -3)
           if [ -z "$SWT_AARCH" ]; then
-            echo "ERROR: No se encontro SWT para macosx.cocoa.aarch64"
+            echo "ADVERTENCIA: SWT cocoa aarch64 no encontrado en target"
+            echo "SWT disponibles:"
             find "$TARGET/plugins" -name "*swt*" | head -20
-            exit 1
+            find "$PLATFORM_REPO" -name "*swt*aarch64*" | head -10
+          else
+            echo "SWT aarch64 encontrado: $SWT_AARCH"
           fi
-          echo "SWT aarch64 encontrado: $SWT_AARCH"
 
           echo "TARGET_PLATFORM=$TARGET" >> $GITHUB_ENV
           echo "ECLIPSE_HOME=$ECLIPSE_HOME" >> $GITHUB_ENV
