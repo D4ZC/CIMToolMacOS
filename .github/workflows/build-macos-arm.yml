@@ -1,36 +1,22 @@
 name: Build CIMTool macOS ARM
 
-# ─────────────────────────────────────────────────────────────────────────────
-# TRIGGERS
-# ─────────────────────────────────────────────────────────────────────────────
 on:
-  # Ejecución manual desde la pestaña Actions en GitHub
   workflow_dispatch:
     inputs:
       version:
-        description: 'Versión del producto (ej: 2.2.0)'
+        description: 'Version del producto (ej: 2.2.0)'
         required: true
         default: '2.2.0'
 
-  # También se puede activar al hacer push a master (opcional, comenta si no lo deseas)
-  # push:
-  #   branches: [ master ]
-
-# ─────────────────────────────────────────────────────────────────────────────
-# VARIABLES GLOBALES
-# ─────────────────────────────────────────────────────────────────────────────
 env:
   CIMTOOL_VERSION: ${{ github.event.inputs.version || '2.2.0' }}
-  # Eclipse 2023-06 R — misma versión recomendada en la documentación oficial del proyecto
   ECLIPSE_VERSION: 2023-06
   ECLIPSE_BUILD: R
-  ECLIPSE_DROP:   R-4.28-202306050440
-  # Directorio de trabajo para el build
+  ECLIPSE_DROP: R-4.28-202306050440
   BUILD_DIR: ${{ github.workspace }}/build-output
 
 jobs:
   build-macos-arm:
-    # ── runner macos-14 = Apple Silicon M1/M2 nativo (NO Rosetta) ────────────
     runs-on: macos-14
 
     steps:
@@ -38,17 +24,16 @@ jobs:
       - name: Verificar que el runner es ARM nativo
         run: |
           echo "=== Arquitectura del runner ==="
-          uname -m        # debe ser: arm64
+          uname -m
           uname -a
 
-      # ── 2. CLONAR EL REPOSITORIO ───────────────────────────────────────────
+      # ── 2. CLONAR REPOSITORIO ──────────────────────────────────────────────
       - name: Checkout CIMTool
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
       # ── 3. INSTALAR JDK ARM NATIVO ─────────────────────────────────────────
-      # Temurin 21 (LTS) es compatible con los requisitos >= Java 20 del proyecto
       - name: Instalar Temurin 21 para aarch64
         uses: actions/setup-java@v4
         with:
@@ -58,84 +43,68 @@ jobs:
 
       - name: Verificar JDK ARM
         run: |
-          echo "=== JDK instalado ==="
           java -version
           echo "JAVA_HOME: $JAVA_HOME"
-          file $JAVA_HOME/bin/java    # debe decir: Mach-O 64-bit executable arm64
+          file $JAVA_HOME/bin/java
 
-      # ── 4. CACHE DE ECLIPSE (evita descargar en cada ejecución) ───────────
-      - name: Cache Eclipse RCP
+      # ── 4. CACHE ───────────────────────────────────────────────────────────
+      - name: Cache Eclipse RCP y Platform Repo
         id: cache-eclipse
         uses: actions/cache@v4
         with:
           path: |
             $HOME/eclipse-rcp
             $HOME/platform-repo
-          key: eclipse-${{ env.ECLIPSE_VERSION }}-${{ env.ECLIPSE_DROP }}-macos-aarch64-v2
+          key: eclipse-${{ env.ECLIPSE_VERSION }}-${{ env.ECLIPSE_DROP }}-macos-aarch64-v3
 
-      # ── 5. DESCARGAR ECLIPSE RCP PARA macOS aarch64 ───────────────────────
+      # ── 5. DESCARGAR ECLIPSE RCP macOS aarch64 ────────────────────────────
       - name: Descargar Eclipse RCP macOS ARM
         if: steps.cache-eclipse.outputs.cache-hit != 'true'
         run: |
           echo "=== Descargando Eclipse RCP 2023-06 para macOS aarch64 ==="
-
-          # URL directa al mirror de Eclipse para la versión aarch64
           ECLIPSE_URL="https://www.eclipse.org/downloads/download.php?file=/technology/epp/downloads/release/${{ env.ECLIPSE_VERSION }}/${{ env.ECLIPSE_BUILD }}/eclipse-rcp-${{ env.ECLIPSE_VERSION }}-${{ env.ECLIPSE_BUILD }}-macosx-cocoa-aarch64.dmg&r=1"
-
           curl -L --retry 3 --retry-delay 5 -o /tmp/eclipse-rcp.dmg "$ECLIPSE_URL"
-          echo "Descarga completada. Tamaño:"
           ls -lh /tmp/eclipse-rcp.dmg
-
-          # Montar DMG y copiar .app
           hdiutil attach /tmp/eclipse-rcp.dmg -mountpoint /Volumes/EclipseRCP -nobrowse -quiet
           mkdir -p $HOME/eclipse-rcp
           cp -R "/Volumes/EclipseRCP/Eclipse.app" $HOME/eclipse-rcp/
           hdiutil detach /Volumes/EclipseRCP -quiet
-
-          echo "=== Eclipse RCP instalado en: $HOME/eclipse-rcp ==="
+          echo "Eclipse RCP instalado:"
           ls $HOME/eclipse-rcp/Eclipse.app/Contents/Eclipse/
 
-      # ── 6. DESCARGAR PLATFORM RUNTIME REPO (reemplaza al Delta Pack) ────────
-      # Desde Eclipse 4.5, el "Delta Pack" ya no existe como ZIP independiente.
-      # Su reemplazo es org.eclipse.platform-X.XX.zip (p2 repo de la plataforma),
-      # que contiene todos los fragmentos SWT/OS para todas las plataformas,
-      # incluyendo macosx.cocoa.aarch64.
-      # URL real: archive.eclipse.org con el parámetro dropFile=
-      - name: Descargar Eclipse Platform Runtime Repo (reemplaza Delta Pack)
+      # ── 6. DESCARGAR PLATFORM RUNTIME REPO ───────────────────────────────
+      # CLAVE: La URL es DIRECTA a archive.eclipse.org apuntando al archivo.
+      # NO usar download.php (devuelve pagina HTML de click-through, no el ZIP).
+      # org.eclipse.platform-4.28.zip (~110MB) contiene fragmentos para
+      # todas las plataformas, incluida macosx.cocoa.aarch64.
+      - name: Descargar Eclipse Platform Runtime Repo
         if: steps.cache-eclipse.outputs.cache-hit != 'true'
         run: |
-          echo "=== Descargando Eclipse Platform Runtime Repo para ${{ env.ECLIPSE_DROP }} ==="
+          echo "=== Descargando org.eclipse.platform-4.28.zip ==="
 
-          # URL correcta: archive.eclipse.org + download.php?dropFile=
-          # Archivo: org.eclipse.platform-4.28.zip (~110MB, contiene fragmentos ARM)
-          PLATFORM_REPO_URL="https://archive.eclipse.org/eclipse/downloads/drops4/${{ env.ECLIPSE_DROP }}/download.php?dropFile=org.eclipse.platform-4.28.zip"
+          DIRECT_URL="https://archive.eclipse.org/eclipse/downloads/drops4/${{ env.ECLIPSE_DROP }}/org.eclipse.platform-4.28.zip"
+          echo "URL: $DIRECT_URL"
 
-          curl -L --retry 3 --retry-delay 5 \
+          curl -L --retry 3 --retry-delay 5 --progress-bar \
                -o /tmp/platform-repo.zip \
-               "$PLATFORM_REPO_URL"
+               "$DIRECT_URL"
 
-          echo "Descarga completada. Tamaño:"
+          echo "Descarga completada:"
           ls -lh /tmp/platform-repo.zip
-
-          # Verificar que es un ZIP real (no una página HTML)
           file /tmp/platform-repo.zip
+
           if ! unzip -t /tmp/platform-repo.zip > /dev/null 2>&1; then
-            echo "ERROR: El archivo descargado no es un ZIP válido."
-            echo "Primeros bytes del archivo:"
+            echo "ERROR: No es un ZIP valido. Contenido:"
             head -5 /tmp/platform-repo.zip
             exit 1
           fi
 
           mkdir -p $HOME/platform-repo
           unzip -q /tmp/platform-repo.zip -d $HOME/platform-repo
-
-          echo "=== Platform Repo descomprimido. Fragmentos aarch64 disponibles: ==="
-          find $HOME/platform-repo -name "*aarch64*" | head -20 || echo "ADVERTENCIA: No se encontraron fragmentos aarch64"
+          echo "=== Fragmentos aarch64 encontrados: ==="
+          find $HOME/platform-repo -name "*aarch64*" | head -20
 
       # ── 7. CONFIGURAR TARGET PLATFORM ─────────────────────────────────────
-      # Fusiona Eclipse RCP base + Platform Runtime Repo en un directorio unificado.
-      # El Platform Runtime Repo (org.eclipse.platform-4.28.zip) es un p2 repo
-      # que contiene los fragmentos para todas las plataformas, incluyendo aarch64.
       - name: Configurar Target Platform
         run: |
           ECLIPSE_HOME="$HOME/eclipse-rcp/Eclipse.app/Contents/Eclipse"
@@ -144,64 +113,49 @@ jobs:
 
           mkdir -p "$TARGET/plugins" "$TARGET/features"
 
-          # 1. Copiar plugins del Eclipse RCP base (aarch64 nativo)
           echo "Copiando plugins de Eclipse RCP base..."
           cp -Rf "$ECLIPSE_HOME/plugins"/. "$TARGET/plugins/"
 
-          # 2. Mergear plugins del Platform Runtime Repo
-          #    Este repo puede estar en distintas estructuras según la versión;
-          #    buscamos la carpeta plugins donde sea que esté.
           echo "Mergeando plugins del Platform Runtime Repo..."
           REPO_PLUGINS=$(find "$PLATFORM_REPO" -type d -name "plugins" | head -1)
           if [ -n "$REPO_PLUGINS" ]; then
             cp -Rn "$REPO_PLUGINS"/. "$TARGET/plugins/"
             echo "Plugins mergeados desde: $REPO_PLUGINS"
           else
-            echo "ADVERTENCIA: No se encontró carpeta 'plugins' en el platform repo"
-            echo "Estructura del repo:"
-            find "$PLATFORM_REPO" -maxdepth 3 -type d | head -30
+            echo "ADVERTENCIA: No se encontro carpeta plugins"
+            find "$PLATFORM_REPO" -maxdepth 3 -type d | head -20
           fi
 
-          # 3. Verificar que SWT para aarch64 está presente (crítico para el export)
-          echo "=== Verificando fragmentos SWT para macOS ARM ==="
+          echo "=== Verificando SWT para macOS ARM ==="
           SWT_AARCH=$(find "$TARGET/plugins" -name "*swt*cocoa*aarch64*" | head -3)
           if [ -z "$SWT_AARCH" ]; then
-            echo "ERROR CRÍTICO: No se encontró SWT para macosx.cocoa.aarch64"
-            echo "Plugins SWT disponibles:"
+            echo "ERROR: No se encontro SWT para macosx.cocoa.aarch64"
             find "$TARGET/plugins" -name "*swt*" | head -20
             exit 1
           fi
-          echo "SWT aarch64 encontrado:"
-          echo "$SWT_AARCH"
+          echo "SWT aarch64 encontrado: $SWT_AARCH"
 
-          # Exportar variables para los pasos siguientes
           echo "TARGET_PLATFORM=$TARGET" >> $GITHUB_ENV
           echo "ECLIPSE_HOME=$ECLIPSE_HOME" >> $GITHUB_ENV
-          echo "=== Target Platform configurada en: $TARGET ==="
 
       # ── 8. PREPARAR DIRECTORIO DE BUILD ───────────────────────────────────
       - name: Preparar directorio de output
         run: |
           mkdir -p "$BUILD_DIR"
-          echo "=== Estructura del proyecto CIMTool ==="
+          echo "=== Estructura del proyecto ==="
           ls -la $GITHUB_WORKSPACE/
-          echo ""
-          echo "=== Contenido de CIMToolProduct ==="
-          ls -la $GITHUB_WORKSPACE/CIMToolProduct/ || echo "ADVERTENCIA: No se encontró CIMToolProduct/"
+          echo "=== CIMToolProduct ==="
+          ls -la $GITHUB_WORKSPACE/CIMToolProduct/ || echo "No se encontro CIMToolProduct/"
 
-      # ── 9. EJECUTAR PDE HEADLESS EXPORT ───────────────────────────────────
-      # Este es el paso principal: Eclipse corre en modo headless (sin UI)
-      # y ejecuta el mismo proceso de export que haría el desarrollador manualmente.
+      # ── 9. PDE HEADLESS EXPORT ─────────────────────────────────────────────
       - name: Ejecutar PDE Headless Export para macOS ARM
         run: |
           ECLIPSE_EXEC="$ECLIPSE_HOME/eclipse"
-          PDE_BUILD_SCRIPTS=$(ls -d $TARGET_PLATFORM/plugins/org.eclipse.pde.build_*)
+          PDE_BUILD_SCRIPTS=$(ls -d $TARGET_PLATFORM/plugins/org.eclipse.pde.build_* 2>/dev/null | head -1)
 
-          echo "=== PDE Build scripts en: $PDE_BUILD_SCRIPTS ==="
-          echo "=== Eclipse executable: $ECLIPSE_EXEC ==="
+          echo "PDE Build scripts: $PDE_BUILD_SCRIPTS"
+          echo "Eclipse executable: $ECLIPSE_EXEC"
 
-          # El productBuild.xml es el script Ant que PDE usa internamente para
-          # compilar y exportar productos Eclipse
           "$ECLIPSE_EXEC" \
             -nosplash \
             -consoleLog \
@@ -228,37 +182,29 @@ jobs:
       # ── 10. VERIFICAR OUTPUT ───────────────────────────────────────────────
       - name: Verificar archivos generados
         run: |
-          echo "=== Archivos en el directorio de output ==="
+          echo "=== Archivos generados ==="
           find "$BUILD_DIR" -type f | sort
-
-          echo ""
-          echo "=== ZIPs generados ==="
           find "$BUILD_DIR" -name "*.zip" -exec ls -lh {} \;
 
-          # Verificar que se generó el ZIP para macOS ARM
           MAC_ZIP=$(find "$BUILD_DIR" -name "*macosx*aarch64*.zip" | head -1)
           if [ -z "$MAC_ZIP" ]; then
-            echo "ERROR: No se generó el ZIP para macOS aarch64"
-            echo "Revisando log de build..."
+            echo "ERROR: No se genero el ZIP para macOS aarch64"
             tail -100 "$BUILD_DIR/build.log"
             exit 1
           fi
 
-          echo "ZIP generado exitosamente: $MAC_ZIP"
+          echo "ZIP generado: $MAC_ZIP"
           echo "MAC_ZIP=$MAC_ZIP" >> $GITHUB_ENV
 
-      # ── 11. RENOMBRAR CON CONVENCIÓN DE NOMBRE OFICIAL ────────────────────
-      - name: Renombrar artifact con convención oficial
+      # ── 11. RENOMBRAR ARTIFACT ─────────────────────────────────────────────
+      - name: Renombrar con convencion oficial
         run: |
           FINAL_NAME="CIMTool-${{ env.CIMTOOL_VERSION }}-macosx.cocoa.aarch64.zip"
           cp "$MAC_ZIP" "$BUILD_DIR/$FINAL_NAME"
           echo "FINAL_ZIP=$BUILD_DIR/$FINAL_NAME" >> $GITHUB_ENV
-          echo "Artifact final: $FINAL_NAME"
           ls -lh "$BUILD_DIR/$FINAL_NAME"
 
-      # ── 12. SUBIR ARTIFACT A GITHUB ACTIONS ───────────────────────────────
-      # El ZIP estará disponible para descargar desde la pestaña "Actions"
-      # en GitHub durante 30 días, sin necesidad de crear un release formal.
+      # ── 12. SUBIR ARTIFACT ─────────────────────────────────────────────────
       - name: Subir artifact macOS ARM
         uses: actions/upload-artifact@v4
         with:
@@ -267,27 +213,12 @@ jobs:
           retention-days: 30
           if-no-files-found: error
 
-      # ── 13. SUBIR LOG DE BUILD (útil para debugging si algo falla) ─────────
+      # ── 13. SUBIR LOG (siempre, incluso si falla) ──────────────────────────
       - name: Subir log de build
-        if: always()   # siempre sube el log, incluso si el build falla
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: build-log
           path: ${{ env.BUILD_DIR }}/build.log
           retention-days: 7
           if-no-files-found: ignore
-
-      # ── 14. (OPCIONAL) CREAR RELEASE EN GITHUB ────────────────────────────
-      # Descomenta este bloque si quieres publicar el .zip como GitHub Release
-      # en lugar de solo dejarlo como artifact de Actions.
-      #
-      # - name: Crear GitHub Release
-      #   uses: softprops/action-gh-release@v2
-      #   with:
-      #     tag_name: v${{ env.CIMTOOL_VERSION }}-macos-arm
-      #     name: "CIMTool ${{ env.CIMTOOL_VERSION }} - macOS ARM (aarch64)"
-      #     body: |
-      #       Build automático para Apple Silicon (macOS ARM aarch64).
-      #       Generado por GitHub Actions con runner macos-14 (M1/M2 nativo).
-      #     files: ${{ env.FINAL_ZIP }}
-      #     draft: true   # draft=true para que puedas revisar antes de publicar
