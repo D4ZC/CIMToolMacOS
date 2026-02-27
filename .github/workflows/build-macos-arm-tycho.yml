@@ -38,52 +38,50 @@ jobs:
           key: tycho-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pom.xml', 'CIMToolProduct/CIMTool.target') }}
           restore-keys: tycho-${{ runner.os }}-${{ runner.arch }}-
 
-      # ── GENERAR pom.xml CORRECTOS ──────────────────────────────────────────
-      # Tycho exige: artifactId == Bundle-SymbolicName del MANIFEST.MF
-      # Este paso lee el BSN real de cada MANIFEST.MF y genera el pom.xml
-      # correcto, evitando: "artifactId must be the same as bundle symbolic name"
       - name: Generar pom.xml de modulos con artifactId correcto
         run: |
-          python3 - << 'PYEOF'
-          import os, re
+          python3 << 'PYEOF'
+          import os, re, textwrap
 
           PARENT_GROUP    = "au.com.langdale.cimtool"
           PARENT_ARTIFACT = "cimtool-parent"
           PARENT_VERSION  = "2.2.0-SNAPSHOT"
 
-          PLUGIN_POM = """<?xml version="1.0" encoding="UTF-8"?>
-<project xmlns="http://maven.apache.org/POM/4.0.0"
-         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
-                             http://maven.apache.org/xsd/maven-4.0.0.xsd">
-  <modelVersion>4.0.0</modelVersion>
-  <parent>
-    <groupId>{pg}</groupId>
-    <artifactId>{pa}</artifactId>
-    <version>{pv}</version>
-    <relativePath>../pom.xml</relativePath>
-  </parent>
-  <artifactId>{aid}</artifactId>
-  <packaging>eclipse-plugin</packaging>
-</project>
-"""
+          def plugin_pom(aid):
+              return textwrap.dedent("""\
+                  <?xml version="1.0" encoding="UTF-8"?>
+                  <project xmlns="http://maven.apache.org/POM/4.0.0"
+                           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                           xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+                    <modelVersion>4.0.0</modelVersion>
+                    <parent>
+                      <groupId>au.com.langdale.cimtool</groupId>
+                      <artifactId>cimtool-parent</artifactId>
+                      <version>2.2.0-SNAPSHOT</version>
+                      <relativePath>../pom.xml</relativePath>
+                    </parent>
+                    <artifactId>""" + aid + """</artifactId>
+                    <packaging>eclipse-plugin</packaging>
+                  </project>
+                  """)
 
-          FEATURE_POM = """<?xml version="1.0" encoding="UTF-8"?>
-<project xmlns="http://maven.apache.org/POM/4.0.0"
-         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
-                             http://maven.apache.org/xsd/maven-4.0.0.xsd">
-  <modelVersion>4.0.0</modelVersion>
-  <parent>
-    <groupId>{pg}</groupId>
-    <artifactId>{pa}</artifactId>
-    <version>{pv}</version>
-    <relativePath>../pom.xml</relativePath>
-  </parent>
-  <artifactId>{aid}</artifactId>
-  <packaging>eclipse-feature</packaging>
-</project>
-"""
+          def feature_pom(aid):
+              return textwrap.dedent("""\
+                  <?xml version="1.0" encoding="UTF-8"?>
+                  <project xmlns="http://maven.apache.org/POM/4.0.0"
+                           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                           xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+                    <modelVersion>4.0.0</modelVersion>
+                    <parent>
+                      <groupId>au.com.langdale.cimtool</groupId>
+                      <artifactId>cimtool-parent</artifactId>
+                      <version>2.2.0-SNAPSHOT</version>
+                      <relativePath>../pom.xml</relativePath>
+                    </parent>
+                    <artifactId>""" + aid + """</artifactId>
+                    <packaging>eclipse-feature</packaging>
+                  </project>
+                  """)
 
           IGNORE = {'.git', '.github', 'docs', 'target'}
           included = []
@@ -91,45 +89,30 @@ jobs:
           for d in sorted(os.listdir('.')):
               if not os.path.isdir(d) or d in IGNORE or d.startswith('.'):
                   continue
-
               manifest = os.path.join(d, 'META-INF', 'MANIFEST.MF')
               feature  = os.path.join(d, 'feature.xml')
               pom      = os.path.join(d, 'pom.xml')
-
               if os.path.exists(manifest):
                   txt = open(manifest, encoding='utf-8', errors='replace').read()
                   m = re.search(r'^Bundle-SymbolicName:\s*([^\s;]+)', txt, re.MULTILINE)
                   if m:
                       bsn = m.group(1).strip()
-                      open(pom, 'w').write(PLUGIN_POM.format(pg=PARENT_GROUP, pa=PARENT_ARTIFACT, pv=PARENT_VERSION, aid=bsn))
+                      open(pom, 'w').write(plugin_pom(bsn))
                       included.append(d)
-                      print(f"  [plugin]  {d:30s}  ->  {bsn}")
+                      print(f"  [plugin]  {d:30s} -> {bsn}")
                   else:
-                      print(f"  [skip]    {d:30s}  (MANIFEST sin BSN)")
-
+                      print(f"  [skip]    {d:30s} (MANIFEST sin BSN)")
               elif os.path.exists(feature):
                   txt = open(feature, encoding='utf-8', errors='replace').read()
                   m = re.search(r'<feature[^>]+\bid=["\']([^"\']+)["\']', txt)
                   fid = m.group(1) if m else d
-                  open(pom, 'w').write(FEATURE_POM.format(pg=PARENT_GROUP, pa=PARENT_ARTIFACT, pv=PARENT_VERSION, aid=fid))
+                  open(pom, 'w').write(feature_pom(fid))
                   included.append(d)
-                  print(f"  [feature] {d:30s}  ->  {fid}")
-
+                  print(f"  [feature] {d:30s} -> {fid}")
               elif os.path.exists(pom):
-                  print(f"  [keep]    {d:30s}  (pom existente sin MANIFEST/feature)")
-
-          print(f"\nModulos procesados: {included}")
+                  print(f"  [keep]    {d:30s} (pom existente)")
+          print(f"Modulos procesados: {included}")
           PYEOF
-
-      - name: Mostrar modulos detectados
-        run: |
-          echo "=== artifactId detectados ==="
-          for f in */pom.xml; do
-            AID=$(grep -m1 '<artifactId>' "$f" | sed 's/.*<artifactId>\(.*\)<\/artifactId>.*/\1/' | xargs)
-            # segunda ocurrencia es el artifactId del modulo (primera es el parent)
-            AID2=$(grep '<artifactId>' "$f" | sed -n '2p' | sed 's/.*<artifactId>\(.*\)<\/artifactId>.*/\1/' | xargs)
-            echo "  $f -> $AID2"
-          done
 
       - name: Build con Maven Tycho
         run: |
