@@ -35,93 +35,22 @@ jobs:
           path: |
             ~/.m2/repository
             ~/.cache/tycho
-          key: tycho-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/pom.xml') }}
+          key: tycho-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pom.xml', 'CIMToolProduct/CIMTool.target') }}
           restore-keys: tycho-${{ runner.os }}-${{ runner.arch }}-
 
-      # ── DIAGNOSTICO: ver estructura real de todos los modulos ──────────────
-      - name: Diagnosticar modulos del proyecto
+      - name: Generar pom.xml de modulos con artifactId correcto
+        run: python3 .github/scripts/generate-module-poms.py
+
+      - name: Mostrar modulos detectados
         run: |
-          echo "=== Estructura de modulos ==="
-          for dir in */; do
-            dir="${dir%/}"
-            [ ! -d "$dir" ] && continue
-            if [ -f "$dir/META-INF/MANIFEST.MF" ]; then
-              BSN=$(grep "Bundle-SymbolicName:" "$dir/META-INF/MANIFEST.MF" 2>/dev/null | head -1 | cut -d: -f2 | xargs)
-              echo "  [plugin]    $dir  ->  $BSN"
-            elif [ -f "$dir/feature.xml" ]; then
-              echo "  [feature]   $dir"
-            elif ls "$dir"/*.product 2>/dev/null | head -1 > /dev/null 2>&1; then
-              echo "  [product]   $dir"
-            elif [ -f "$dir/pom.xml" ]; then
-              echo "  [pom only]  $dir  (sin MANIFEST ni feature.xml — NO es OSGi)"
-            else
-              echo "  [skip]      $dir"
-            fi
+          echo "=== Modulos en pom.xml raiz ==="
+          grep -A 30 '<modules>' pom.xml | head -35
+          echo ""
+          echo "=== artifactId de cada modulo ==="
+          for f in */pom.xml; do
+            echo "  $f -> $(grep '<artifactId>' $f | sed -n '2p' | xargs)"
           done
 
-      # ── AUTO-DETECTAR MODULOS OSGi VALIDOS Y ACTUALIZAR pom.xml ───────────
-      # Tycho falla si un modulo tiene packaging=eclipse-plugin
-      # pero no tiene META-INF/MANIFEST.MF con Bundle-SymbolicName.
-      # Este paso reescribe la seccion <modules> del pom.xml raiz
-      # incluyendo SOLO los directorios que son bundles OSGi reales.
-      - name: Auto-detectar modulos OSGi y actualizar pom.xml raiz
-        run: |
-          python3 << 'PYEOF'
-          import os, re
-
-          modules = []
-          skipped = []
-
-          for d in sorted(os.listdir('.')):
-              if not os.path.isdir(d):
-                  continue
-              pom = os.path.join(d, 'pom.xml')
-              if not os.path.exists(pom):
-                  continue
-
-              manifest = os.path.join(d, 'META-INF', 'MANIFEST.MF')
-              feature  = os.path.join(d, 'feature.xml')
-              products = [f for f in os.listdir(d) if f.endswith('.product')]
-
-              if os.path.exists(manifest):
-                  content = open(manifest).read()
-                  if 'Bundle-SymbolicName' in content:
-                      modules.append(d)
-                      print(f'  INCLUIDO [plugin]:  {d}')
-                  else:
-                      skipped.append(d)
-                      print(f'  OMITIDO  [manifest sin BSN]: {d}')
-              elif os.path.exists(feature):
-                  modules.append(d)
-                  print(f'  INCLUIDO [feature]: {d}')
-              elif products:
-                  modules.append(d)
-                  print(f'  INCLUIDO [product]: {d}')
-              else:
-                  skipped.append(d)
-                  print(f'  OMITIDO  [sin tipo OSGi]: {d}')
-
-          # Reescribir seccion <modules> en pom.xml raiz
-          modules_xml = '\n'.join(f'    <module>{m}</module>' for m in modules)
-          new_block = f'  <modules>\n{modules_xml}\n  </modules>'
-
-          pom_content = open('pom.xml').read()
-          pom_content = re.sub(
-              r'<modules>.*?</modules>',
-              new_block,
-              pom_content,
-              flags=re.DOTALL
-          )
-          open('pom.xml', 'w').write(pom_content)
-
-          print(f'\nTotal modulos incluidos: {len(modules)}')
-          print(f'Total omitidos:          {len(skipped)}')
-          PYEOF
-
-      - name: Mostrar pom.xml raiz actualizado
-        run: grep -A 30 '<modules>' pom.xml
-
-      # ── BUILD ──────────────────────────────────────────────────────────────
       - name: Build con Maven Tycho
         run: |
           mvn clean package \
@@ -130,21 +59,16 @@ jobs:
             -Dmaven.test.skip=true \
             -e \
             2>&1 | tee build.log
-
           if grep -q "BUILD FAILURE" build.log; then
-            echo ""
-            echo "=== BUILD FAILURE — ultimas 80 lineas ==="
-            tail -80 build.log
+            echo "=== BUILD FAILURE - ultimas 100 lineas ==="
+            tail -100 build.log
             exit 1
           fi
           echo "=== BUILD SUCCESS ==="
 
-      # ── VERIFICAR OUTPUT ───────────────────────────────────────────────────
       - name: Verificar artifacts generados
         run: |
-          echo "=== Contenido de CIMToolProduct/target/ ==="
           find CIMToolProduct/target -type f 2>/dev/null | sort || echo "No existe target/"
-
           MAC_ARTIFACT=$(find CIMToolProduct/target/products -name "*macosx*aarch64*" 2>/dev/null | head -1)
           if [ -z "$MAC_ARTIFACT" ]; then
             echo "ERROR: No se genero el artifact macOS aarch64"
