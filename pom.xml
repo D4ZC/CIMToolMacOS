@@ -16,8 +16,10 @@
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
   </properties>
 
-  <!-- ── MODULOS ────────────────────────────────────────────────────────── -->
-  <!-- El script de auto-deteccion en el workflow reescribe esta seccion    -->
+  <!--
+    Los modulos se reescriben automaticamente por el script
+    generate-module-poms.py en el workflow antes del build.
+  -->
   <modules>
     <module>RCPUtil</module>
     <module>Kena</module>
@@ -30,36 +32,19 @@
   </modules>
 
   <!--
-    ══════════════════════════════════════════════════════════════════════════
-    REPOSITORIOS P2 — TYCHO 4.x
-    ══════════════════════════════════════════════════════════════════════════
-    En Tycho 4.x los repos p2 se declaran aqui como repositorios Maven
-    con layout=p2. NO van dentro de target-platform-configuration.
-    El warning "Parameter 'repositories' is unknown" indica que estaban
-    en el lugar equivocado.
+    Repositorio Maven estandar de Eclipse — necesario para que Maven
+    pueda descargar los plugins de Tycho en si mismos.
   -->
   <repositories>
     <repository>
-      <id>eclipse-2023-06</id>
-      <url>https://download.eclipse.org/releases/2023-06/</url>
-      <layout>p2</layout>
-    </repository>
-    <repository>
-      <id>eclipse-wtp-2023-06</id>
-      <url>https://download.eclipse.org/webtools/repository/2023-06/</url>
-      <layout>p2</layout>
-    </repository>
-    <repository>
-      <id>eclipse-orbit</id>
-      <url>https://download.eclipse.org/tools/orbit/simrel/orbit-aggregation/release/latest/</url>
-      <layout>p2</layout>
+      <id>eclipse-releases</id>
+      <url>https://repo.eclipse.org/content/groups/releases/</url>
     </repository>
   </repositories>
 
   <build>
     <plugins>
 
-      <!-- ── TYCHO CORE ── -->
       <plugin>
         <groupId>org.eclipse.tycho</groupId>
         <artifactId>tycho-maven-plugin</artifactId>
@@ -67,16 +52,21 @@
         <extensions>true</extensions>
       </plugin>
 
-      <!-- ── TARGET PLATFORM ── -->
       <!--
-        En Tycho 4.x target-platform-configuration NO lleva <repositories>.
-        Solo declara los entornos OS/arco y la JVM de ejecucion.
+        TARGET PLATFORM: usar CIMTool.target como fuente de verdad.
+        Este archivo define exactamente que repos p2 y que features
+        de Eclipse usar. Es el enfoque correcto para proyectos Eclipse.
+        Sin este archivo Tycho no puede resolver dependencias como
+        org.eclipse.core.runtime para bundles con versiones distintas.
       -->
       <plugin>
         <groupId>org.eclipse.tycho</groupId>
         <artifactId>target-platform-configuration</artifactId>
         <version>${tycho.version}</version>
         <configuration>
+          <target>
+            <file>CIMToolProduct/CIMTool.target</file>
+          </target>
           <executionEnvironment>JavaSE-21</executionEnvironment>
           <environments>
             <environment>
@@ -98,7 +88,6 @@
         </configuration>
       </plugin>
 
-      <!-- ── COMPILADOR ── -->
       <plugin>
         <groupId>org.eclipse.tycho</groupId>
         <artifactId>tycho-compiler-plugin</artifactId>
