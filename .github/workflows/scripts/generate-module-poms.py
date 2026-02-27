@@ -3,7 +3,7 @@
 generate-module-poms.py
 
 Lee el Bundle-SymbolicName real de cada MANIFEST.MF y genera el pom.xml
-correcto para ese modulo.
+correcto para ese modulo..
 
 Tycho 4.x exige que artifactId == Bundle-SymbolicName exactamente.
 Si no coinciden falla con:
