@@ -22,8 +22,14 @@
 
     <!-- Eclipse Orbit — librerias de terceros como bundles OSGi -->
     <!-- Incluye bcpg, bcprov, jna, slf4j, etc. -->
-    <location includeAllPlatforms="false" includeConfigurePhase="true" includeMode="planner" includeSource="true" type="InstallableUnit">
-      <unit id="org.eclipse.orbit.feature.group" version="0.0.0"/>
+    <location includeAllPlatforms="false" includeConfigurePhase="true" includeMode="planner" includeSource="false" type="InstallableUnit">
+      <unit id="bcpg" version="0.0.0"/>
+      <unit id="bcprov" version="0.0.0"/>
+      <unit id="com.sun.jna" version="0.0.0"/>
+      <unit id="com.sun.jna.platform" version="0.0.0"/>
+      <unit id="slf4j.api" version="0.0.0"/>
+      <unit id="org.apache.commons.logging" version="0.0.0"/>
+      <unit id="org.apache.commons.io" version="0.0.0"/>
       <repository location="https://download.eclipse.org/tools/orbit/simrel/orbit-aggregation/release/latest/"/>
     </location>
 
